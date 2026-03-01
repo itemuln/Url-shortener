@@ -1,85 +1,95 @@
-require("dotenv").config();
-var express = require("express");
-var bodyParser = require("body-parser");
-var cors = require("cors");
-var dns = require("dns");
+const express = require("express");
+const cors = require("cors");
+const dns = require("dns");
+const bodyParser = require("body-parser");
+const { URL } = require("url");
 
-var app = express();
-var port = process.env.PORT || 3000;
+const app = express();
 
-// In-memory storage — no database needed
-var urls = [];
-var id = 0;
-
+// Middleware
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use("/public", express.static(process.cwd() + "/public"));
+app.use(express.json());
+app.use(express.static("public"));
 
-app.get("/", function (req, res) {
-  res.sendFile(process.cwd() + "/views/index.html");
+// Store URLs in memory (short_url -> original_url)
+const urlDatabase = {};
+let urlCounter = 1;
+
+// Root page
+app.get("/", (req, res) => {
+  res.sendFile(__dirname + "/views/index.html");
 });
 
-// POST /api/shorturl
-app.post("/api/shorturl", function (req, res) {
-  var originalUrl = req.body.url;
+// POST new URL
+app.post("/api/shorturl", (req, res) => {
+  let originalUrl = req.body.url;
+  
+  console.log("POST received:", originalUrl);
 
-  // Must match http(s)://something format
-  var urlRegex = /^https?:\/\//;
-  if (!urlRegex.test(originalUrl)) {
-    return res.json({ error: "invalid url" });
-  }
-
-  // Parse and verify hostname with dns
-  var parsedUrl;
   try {
-    parsedUrl = new URL(originalUrl);
-  } catch (e) {
-    return res.json({ error: "invalid url" });
-  }
+    // Validate URL format
+    const urlObj = new URL(originalUrl);
+    
+    console.log("Protocol:", urlObj.protocol);
+    console.log("Hostname:", urlObj.hostname);
 
-  dns.lookup(parsedUrl.hostname, function (err) {
-    if (err) {
+    // Only allow http and https protocols
+    if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
+      console.log("Invalid protocol");
       return res.json({ error: "invalid url" });
     }
 
-    // Check if already stored
-    var existing = urls.find(function (entry) {
-      return entry.original_url === originalUrl;
-    });
-    if (existing) {
+    // DNS lookup to validate hostname with callback
+    dns.lookup(urlObj.hostname, (err, address) => {
+      if (err) {
+        console.log("DNS lookup failed for:", urlObj.hostname, "Error:", err.code);
+        return res.json({ error: "invalid url" });
+      }
+      
+      console.log("DNS lookup successful:", address);
+      
+      // Save URL and return JSON
+      const short_url = urlCounter++;
+      urlDatabase[short_url] = originalUrl;
+      
+      console.log("Saved - short_url:", short_url, "original:", originalUrl);
+      console.log("Database now contains:", urlDatabase);
+
       return res.json({
-        original_url: existing.original_url,
-        short_url: existing.short_url
+        original_url: originalUrl,
+        short_url: short_url,
       });
-    }
-
-    // Store new URL
-    id++;
-    var newEntry = { original_url: originalUrl, short_url: id };
-    urls.push(newEntry);
-
-    return res.json({
-      original_url: newEntry.original_url,
-      short_url: newEntry.short_url
     });
-  });
-});
-
-// GET /api/shorturl/:number
-app.get("/api/shorturl/:number", function (req, res) {
-  var shortUrl = parseInt(req.params.number);
-
-  var entry = urls.find(function (u) {
-    return u.short_url === shortUrl;
-  });
-
-  if (!entry) {
-    return res.json({ error: "No short URL found" });
+  } catch (err) {
+    console.log("URL parsing error:", err.message);
+    return res.json({ error: "invalid url" });
   }
-
-  res.redirect(entry.original_url);
 });
 
-app.listen(port, function () {
-  console.log("Node.js listening on port " + port);
+// Redirect short URL
+app.get("/api/shorturl/:short_url", (req, res) => {
+  console.log("\n=== REDIRECT REQUEST ===");
+  console.log("Param received:", req.params.short_url);
+  
+  const short_url = parseInt(req.params.short_url);
+  console.log("Parsed to number:", short_url);
+  console.log("Current database:", urlDatabase);
+  console.log("Database keys:", Object.keys(urlDatabase));
+  
+  const originalUrl = urlDatabase[short_url];
+  console.log("Looking up key", short_url, "found:", originalUrl);
+
+  if (originalUrl) {
+    console.log("SUCCESS - Redirecting to:", originalUrl);
+    return res.redirect(originalUrl);
+  } else {
+    console.log("FAILED - URL not found in database");
+    return res.json({ error: "No short URL found for given input" });
+  }
+});
+
+// Start server
+const listener = app.listen(process.env.PORT || 3000, () => {
+  console.log("Your app is listening on port " + listener.address().port);
 });
