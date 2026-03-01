@@ -17,18 +17,6 @@ var MONGO_URI =
 var client = new MongoClient(MONGO_URI);
 var db, urlsCollection;
 
-async function connectDB() {
-  try {
-    await client.connect();
-    db = client.db("url_service");
-    urlsCollection = db.collection("urls");
-    console.log("MongoDB connected!");
-  } catch (err) {
-    console.error("MongoDB connection error:", err.message);
-  }
-}
-connectDB();
-
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use("/public", express.static(process.cwd() + "/public"));
@@ -55,7 +43,6 @@ app.post("/api/shorturl", function (req, res) {
 
   (async function () {
     try {
-      // Check if URL already exists in DB
       var existing = await urlsCollection.findOne({
         original_url: originalUrl,
       });
@@ -66,7 +53,6 @@ app.post("/api/shorturl", function (req, res) {
         });
       }
 
-      // Get next short_url number
       var count = await urlsCollection.countDocuments();
       var shortUrl = count + 1;
 
@@ -102,6 +88,15 @@ app.get("/api/shorturl/:number", async function (req, res) {
   }
 });
 
-app.listen(port, function () {
-  console.log("Node.js listening on port " + port);
+// Connect to MongoDB FIRST, then start listening
+client.connect().then(function () {
+  db = client.db("url_service");
+  urlsCollection = db.collection("urls");
+  console.log("MongoDB connected!");
+
+  app.listen(port, function () {
+    console.log("Node.js listening on port " + port);
+  });
+}).catch(function (err) {
+  console.error("MongoDB connection error:", err.message);
 });
