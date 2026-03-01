@@ -5,8 +5,6 @@ var express = require("express");
 var { MongoClient } = require("mongodb");
 var bodyParser = require("body-parser");
 var cors = require("cors");
-var dns = require("dns");
-var url = require("url");
 
 var app = express();
 var port = process.env.PORT || 3000;
@@ -44,25 +42,23 @@ app.post("/api/shorturl", function (req, res) {
   var originalUrl = req.body.url;
 
   // Validate URL format: must start with http:// or https://
+  var urlRegex = /^https?:\/\/.+/;
+  if (!urlRegex.test(originalUrl)) {
+    return res.json({ error: "invalid url" });
+  }
+
   try {
-    var parsedUrl = new URL(originalUrl);
-    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-      return res.json({ error: "invalid url" });
-    }
+    new URL(originalUrl);
   } catch (e) {
     return res.json({ error: "invalid url" });
   }
 
-  // Use dns.lookup to verify the hostname exists
-  var hostname = parsedUrl.hostname;
-  dns.lookup(hostname, async function (err) {
-    if (err) {
-      return res.json({ error: "invalid url" });
-    }
-
+  (async function () {
     try {
       // Check if URL already exists in DB
-      var existing = await urlsCollection.findOne({ original_url: originalUrl });
+      var existing = await urlsCollection.findOne({
+        original_url: originalUrl,
+      });
       if (existing) {
         return res.json({
           original_url: existing.original_url,
@@ -84,7 +80,7 @@ app.post("/api/shorturl", function (req, res) {
       console.error(dbErr);
       res.json({ error: "server error" });
     }
-  });
+  })();
 });
 
 // GET /api/shorturl/:number - redirect to original URL
