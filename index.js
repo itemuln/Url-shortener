@@ -12,9 +12,12 @@ var port = process.env.PORT || 3000;
 // MongoDB setup
 var MONGO_URI =
   process.env.MONGO_URI ||
-  "mongodb+srv://itemulnl:Pedri6895@backlearndb.wt3xfdr.mongodb.net/?appName=BackLearnDB";
+  "mongodb+srv://itemulnl:Pedri6895@backlearndb.wt3xfdr.mongodb.net/?appName=BackLearnDB&retryWrites=true&w=majority";
 
-var client = new MongoClient(MONGO_URI);
+var client = new MongoClient(MONGO_URI, {
+  tls: true,
+  tlsAllowInvalidCertificates: true,
+});
 var db, urlsCollection;
 
 app.use(cors());
