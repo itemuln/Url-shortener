@@ -56,8 +56,13 @@ app.post("/api/shorturl", function (req, res) {
         });
       }
 
-      var count = await urlsCollection.countDocuments();
-      var shortUrl = count + 1;
+      // Use the counters collection to get a reliable auto-increment ID
+      var counter = await db.collection("counters").findOneAndUpdate(
+        { _id: "urlCount" },
+        { $inc: { seq: 1 } },
+        { upsert: true, returnDocument: "after" }
+      );
+      var shortUrl = counter.value.seq;
 
       await urlsCollection.insertOne({
         original_url: originalUrl,
