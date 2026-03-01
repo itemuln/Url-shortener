@@ -1,24 +1,15 @@
-"use strict";
-
 require("dotenv").config();
 var express = require("express");
-var { MongoClient } = require("mongodb");
 var bodyParser = require("body-parser");
 var cors = require("cors");
+var dns = require("dns");
 
 var app = express();
 var port = process.env.PORT || 3000;
 
-// MongoDB setup
-var MONGO_URI =
-  process.env.MONGO_URI ||
-  "mongodb+srv://itemulnl:Pedri6895@backlearndb.wt3xfdr.mongodb.net/?appName=BackLearnDB&retryWrites=true&w=majority";
-
-var client = new MongoClient(MONGO_URI, {
-  tls: true,
-  tlsAllowInvalidCertificates: true,
-});
-var db, urlsCollection;
+// In-memory storage — no database needed
+var urls = [];
+var id = 0;
 
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -28,83 +19,67 @@ app.get("/", function (req, res) {
   res.sendFile(process.cwd() + "/views/index.html");
 });
 
-// POST /api/shorturl - create a short URL
+// POST /api/shorturl
 app.post("/api/shorturl", function (req, res) {
   var originalUrl = req.body.url;
 
-  // Validate URL format: must start with http:// or https://
-  var urlRegex = /^https?:\/\/.+/;
+  // Must match http(s)://something format
+  var urlRegex = /^https?:\/\//;
   if (!urlRegex.test(originalUrl)) {
     return res.json({ error: "invalid url" });
   }
 
+  // Parse and verify hostname with dns
+  var parsedUrl;
   try {
-    new URL(originalUrl);
+    parsedUrl = new URL(originalUrl);
   } catch (e) {
     return res.json({ error: "invalid url" });
   }
 
-  (async function () {
-    try {
-      var existing = await urlsCollection.findOne({
-        original_url: originalUrl,
-      });
-      if (existing) {
-        return res.json({
-          original_url: existing.original_url,
-          short_url: existing.short_url,
-        });
-      }
-
-      // Use the counters collection to get a reliable auto-increment ID
-      var counter = await db.collection("counters").findOneAndUpdate(
-        { _id: "urlCount" },
-        { $inc: { seq: 1 } },
-        { upsert: true, returnDocument: "after" }
-      );
-      var shortUrl = counter.value.seq;
-
-      await urlsCollection.insertOne({
-        original_url: originalUrl,
-        short_url: shortUrl,
-      });
-
-      res.json({ original_url: originalUrl, short_url: shortUrl });
-    } catch (dbErr) {
-      console.error(dbErr);
-      res.json({ error: "server error" });
+  dns.lookup(parsedUrl.hostname, function (err) {
+    if (err) {
+      return res.json({ error: "invalid url" });
     }
-  })();
-});
 
-// GET /api/shorturl/:number - redirect to original URL
-app.get("/api/shorturl/:number", async function (req, res) {
-  var shortUrl = parseInt(req.params.number);
-  if (isNaN(shortUrl)) {
-    return res.json({ error: "invalid short url" });
-  }
-
-  try {
-    var entry = await urlsCollection.findOne({ short_url: shortUrl });
-    if (!entry) {
-      return res.json({ error: "No short URL found" });
+    // Check if already stored
+    var existing = urls.find(function (entry) {
+      return entry.original_url === originalUrl;
+    });
+    if (existing) {
+      return res.json({
+        original_url: existing.original_url,
+        short_url: existing.short_url
+      });
     }
-    res.redirect(entry.original_url);
-  } catch (err) {
-    console.error(err);
-    res.json({ error: "server error" });
-  }
-});
 
-// Connect to MongoDB FIRST, then start listening
-client.connect().then(function () {
-  db = client.db("url_service");
-  urlsCollection = db.collection("urls");
-  console.log("MongoDB connected!");
+    // Store new URL
+    id++;
+    var newEntry = { original_url: originalUrl, short_url: id };
+    urls.push(newEntry);
 
-  app.listen(port, function () {
-    console.log("Node.js listening on port " + port);
+    return res.json({
+      original_url: newEntry.original_url,
+      short_url: newEntry.short_url
+    });
   });
-}).catch(function (err) {
-  console.error("MongoDB connection error:", err.message);
+});
+
+// GET /api/shorturl/:number
+app.get("/api/shorturl/:number", function (req, res) {
+  var shortUrl = parseInt(req.params.number);
+
+  var entry = urls.find(function (u) {
+    return u.short_url === shortUrl;
+  });
+
+  if (!entry) {
+    return res.json({ error: "No short URL found" });
+  }
+
+  res.redirect(entry.original_url);
+});
+
+app.listen(port, function () {
+  console.log("Node.js listening on port " + port);
 });
